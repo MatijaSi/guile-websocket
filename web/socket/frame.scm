@@ -1,18 +1,24 @@
 (define-module (web socket frame)
+  #:use-module (rnrs bytevectors)
+  #:use-module (rnrs io ports)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+  #:use-module (ice-9 rdelim)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-9 gnu)
   #:use-module (srfi srfi-26)
-  #:use-module (rnrs bytevectors)
-  #:use-module (rnrs io ports)
   #:export (make-frame
             frame?
             frame-final?
             frame-type
             frame-masking-key
             frame-data
+
+            make-pong-frame
+            make-close-frame
+            make-text-frame
+            make-binary-frame
 
             continuation-frame?
             text-frame?
@@ -21,6 +27,7 @@
             ping-frame?
             pong-frame?
             fragment-frame?
+            first-fragment-frame?
             final-fragment-frame?
             control-frame?
             data-frame?
@@ -54,6 +61,18 @@
 
 (set-record-type-printer! <frame> display-frame)
 
+(define* (make-pong-frame bv #:optional (masking-key #f))
+  (make-frame #t 'pong masking-key bv))
+
+(define* (make-fclose-frame bv #:optional (masking-key #f))
+  (make-frame #t 'close masking-key bv))
+
+(define* (make-text-frame str #:optional (masking-key #f))
+  (make-frame #t 'text masking-key (string->utf8 str)))
+
+(define* (make-binary-frame bv #:optional (masking-key #f))
+  (make-frame #t 'binary masking-key bv))
+
 (define (continuation-frame? frame)
   "Return #t if FRAME is a continuation frame."
   (eq? (frame-type frame) 'continuation))
@@ -83,6 +102,11 @@
   "Return #t if FRAME is an incomplete message."
   (or (continuation-frame? frame)
       (not (frame-final? frame))))
+
+(define (first-fragment-frame? frame)
+  "Return #t if FRAME is the first piece of a fragmented message."
+  (and (not (frame-final? frame))
+       (data-frame? frame)))
 
 (define (final-fragment-frame? frame)
   "Return #t if FRAME is the final piece of a fragmented message."
@@ -128,10 +152,59 @@ single bytevector."
 concatenated string."
   (utf8->string (frame-concatenate frames)))
 
+(define (call-with-input-bytevector bv proc)
+  "Call PROC with one argument: an open input port that reads from the
+bytevector BV."
+  (let ((port (open-bytevector-input-port bv)))
+    (dynamic-wind
+      (const #t)
+      (lambda ()
+        (proc port))
+      (lambda ()
+        (close-port port)))))
+
+(define (close-frame->status frame)
+  "Convert FRAME, a close frame, into a pair.  The \"car\" of the pair
+is a positive integer status code, and the \"cdr\" is a string
+containing the explanation, if present."
+  (define (read-status-code)
+    (match (bytevector-sint-ref (frame-data frame) 0 (endianness big) 2)
+      ;; See section 7.4
+      ((and (or 1005 1006 1015) status)
+       (websocket-error "invalid use of reserved status code: " status))
+      (status status)))
+
+  (let ((length (frame-length frame)))
+    (cond
+     ((zero? length) ; unspecified closing status
+      '(1005 . ""))
+     ((= length 2) ; status code only
+      (cons (read-status-code) ""))
+     (else ; status + reason
+      (cons (read-status-code)
+            (call-with-input-bytevector (frame-data frame)
+              (lambda (port)
+                ;; Throw away the status code.
+                (get-u8 port)
+                (get-u8 port)
+                ;; Now read the reason.
+                (read-string port))))))))
+
 
 ;;;
 ;;; Frame reader
 ;;;
+
+;; See section 5.3 - Client-to-Server Masking
+(define (mask-bytevector! bv masking-key)
+  "Apply the WebSocket masking algorithm to the bytevector BV using
+MASKING-KEY."
+  (let loop ((i 0))
+    (when (< i (bytevector-length bv))
+      (let ((masked (logxor (u8vector-ref bv i)
+                            (u8vector-ref masking-key (modulo i 4)))))
+        (u8vector-set! bv i masked)
+        (loop (1+ i))))))
 
 (define (websocket-error message . args)
   (apply error message args))
@@ -184,15 +257,6 @@ concatenated string."
     ;; Masking keys are always 32 bits.
     (get-bytevector-n port 4))
 
-  ;; See section 5.3 - Client-to-Server Masking
-  (define (unmask-bytevector! bv masking-key)
-    (let loop ((i 0))
-      (when (< i (bytevector-length bv))
-        (let ((unmasked (logxor (u8vector-ref bv i)
-                                (u8vector-ref masking-key (modulo i 4)))))
-          (u8vector-set! bv i unmasked)
-          (loop (1+ i))))))
-
   (define (read-data type masking-key length)
     ;; Section 5.5 specifies that control frame bodies may not exceed
     ;; 125 bytes.
@@ -202,7 +266,7 @@ concatenated string."
 
     (let ((bv (get-bytevector-n port length)))
       (when masking-key
-        (unmask-bytevector! bv masking-key))
+        (mask-bytevector! bv masking-key))
       bv))
 
   (let* ((type-byte (get-u8 port))
@@ -226,8 +290,15 @@ concatenated string."
   (define (uint->bytevector n size)
     (uint-list->bytevector (list n) (endianness big) size))
 
+  (define (masked-data mask data)
+    (let* ((length (bytevector-length data))
+           (bv     (make-bytevector length)))
+      (mask-bytevector! bv mask)
+      bv))
+
   (let ((length (frame-length frame))
-        (mask   (frame-masking-key frame)))
+        (mask   (frame-masking-key frame))
+        (data   (frame-data frame)))
     ;; Write FIN bit and opcode.
     (put-u8 port
             (logior (if (frame-final? frame) #x80 #x00)
@@ -256,8 +327,7 @@ concatenated string."
       (put-bytevector port (uint->bytevector length 8))))
 
     ;; Write masking key, if present.
-    (let ((mask (frame-masking-key frame)))
-      (when mask (put-bytevector port mask)))
+    (when mask (put-bytevector port mask))
 
-    ;; Write data.
-    (put-bytevector port (frame-data frame))))
+    ;; Write data, potentially masked.
+    (put-bytevector port (if mask (masked-data mask data) data))))
