@@ -64,7 +64,7 @@
 (define* (make-pong-frame bv #:optional (masking-key #f))
   (make-frame #t 'pong masking-key bv))
 
-(define* (make-fclose-frame bv #:optional (masking-key #f))
+(define* (make-close-frame bv #:optional (masking-key #f))
   (make-frame #t 'close masking-key bv))
 
 (define* (make-text-frame str #:optional (masking-key #f))
