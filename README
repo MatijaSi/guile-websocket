@@ -1,0 +1,27 @@
+-*- mode: org -*-
+
+Guile-WebSocket is an implementation of the WebSocket protocol as
+defined by [[https://tools.ietf.org/html/rfc6455][RFC 6455]].
+
+* Test it out
+
+Run the example server:
+
+#+BEGIN_SRC sh
+  GUILE_LOAD_PATH="$PWD:$GUILE_LOAD_PATH" guile test.scm
+#+END_SRC
+
+Then, open a web browser and run the following in the JavaScript
+console:
+
+#+BEGIN_SRC javascript
+  var ws = new WebSocket("ws://localhost:9090");
+
+  ws.onmessage = function(message) {
+    console.log(message.data);
+  };
+
+  ws.send("hello, there!")
+#+END_SRC
+
+If everything works, "!ereht ,olleh" will be written to the JavaScript console.
