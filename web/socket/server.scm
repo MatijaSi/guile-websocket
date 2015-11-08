@@ -56,15 +56,19 @@ string."
 handshake and listening for control and data frames.  HANDLER is
 called for each complete message that is received."
   (define (handle-data-frame type data)
-    (let ((result (handler (match type
-                            ('text   (utf8->string data))
-                            ('binary data)))))
-      (write-frame (cond
-                    ((string? result)
-                     (make-text-frame result))
-                    ((bytevector? result)
-                     (make-binary-frame result)))
-                   client-socket)))
+    (let* ((result   (handler (match type
+                                ('text   (utf8->string data))
+                                ('binary data))))
+           (response (cond
+                      ((string? result)
+                       (make-text-frame result))
+                      ((bytevector? result)
+                       (make-binary-frame result))
+                      ((not result)
+                       #f))))
+
+      (when response
+        (write-frame response client-socket))))
 
   ;; Perform the HTTP handshake and upgrade to WebSocket protocol.
   (let* ((request (read-handshake-request client-socket))
