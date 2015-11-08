@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+    <body>
+        <script type="text/javascript">
+         var ws = new WebSocket("ws://localhost:9090");
+         console.log("initialized websocket");
+         ws.onmessage = function(evt) {
+             console.log("received message:");
+             console.log(evt);
+         };
+         ws.onopen = function() {
+             console.log("connected");
+             ws.send("Hello, there!");
+         }
+         ws.onclose = function() {
+             console.log("closed websocket");
+         }
+        </script>
+    </body>
+</html>
