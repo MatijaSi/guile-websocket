@@ -334,8 +334,7 @@ MASKING-KEY."
     (uint-list->bytevector (list n) (endianness big) size))
 
   (define (masked-data mask data)
-    (let* ((length (bytevector-length data))
-           (bv     (make-bytevector length)))
+    (let ((bv (bytevector-copy data)))
       (mask-bytevector! bv mask)
       bv))
 
