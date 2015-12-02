@@ -40,6 +40,7 @@
             frame-masking-key
             frame-data
 
+            make-ping-frame
             make-pong-frame
             make-close-frame
             make-text-frame
@@ -86,24 +87,30 @@
 
 (set-record-type-printer! <frame> display-frame)
 
-(define* (make-pong-frame bv #:optional (masking-key #f))
+(define* (make-ping-frame bv #:optional masking-key)
+  "Return a \"ping\" control frame containing the contents of the
+bytevector BV, masked with MASKING-KEY.  By default, the data is
+unmasked."
+  (make-frame #t 'ping masking-key bv))
+
+(define* (make-pong-frame bv #:optional masking-key)
   "Return a \"pong\" control frame containing the contents of the
 bytevector BV, masked with MASKING-KEY.  By default, the data is
 unmasked."
   (make-frame #t 'pong masking-key bv))
 
-(define* (make-close-frame bv #:optional (masking-key #f))
+(define* (make-close-frame bv #:optional masking-key)
   "Return a \"close\" control frame containing the contents of the
 bytevector BV, masked with MASKING-KEY.  By default, the data is
 unmasked."
   (make-frame #t 'close masking-key bv))
 
-(define* (make-text-frame text #:optional (masking-key #f))
+(define* (make-text-frame text #:optional masking-key)
   "Return a text data frame containing the string TEXT, masked with MASKING-KEY.
 By default, the text is unmasked."
   (make-frame #t 'text masking-key (string->utf8 text)))
 
-(define* (make-binary-frame bv #:optional (masking-key #f))
+(define* (make-binary-frame bv #:optional masking-key)
   "Return a binary data frame containing the contents of the
 bytevector BV, masked with MASKING-KEY.  By default, the data is
 unmasked."
