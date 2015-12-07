@@ -22,7 +22,7 @@
 
 ;; RFC 4648 Base-N Encodings
 
-(library (base64)
+(library (web socket base64)
   (export base64-encode
           base64-decode
           base64-alphabet

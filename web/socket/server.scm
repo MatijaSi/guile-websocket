@@ -26,12 +26,12 @@
 (define-module (web socket server)
   #:use-module (ice-9 match)
   #:use-module (rnrs bytevectors)
-  #:use-module (base64)
-  #:use-module (sha-1)
   #:use-module (web request)
   #:use-module (web response)
   #:use-module (web uri)
+  #:use-module (web socket base64)
   #:use-module (web socket frame)
+  #:use-module (web socket sha-1)
   #:export (make-server-socket
             run-server))
 
