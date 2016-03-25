@@ -81,10 +81,11 @@ scheme."
     s))
 
 (define-record-type <websocket>
-  (%make-websocket uri socket state)
+  (%make-websocket uri socket entropy-port state)
   websocket?
   (uri websocket-uri)
   (socket websocket-socket)
+  (entropy-port websocket-entropy-port)
   (state websocket-state set-websocket-state!))
 
 (define (display-websocket ws port)
@@ -142,6 +143,13 @@ remote resource described by URI."
           (close-websocket ws)
           (error "websocket handshake failed" (websocket-uri ws))))))
 
+(define (open-entropy-port)
+  "Return an open input port to a reliable source of entropy for the
+current system."
+  ;; XXX: This works on GNU/Linux and OS X systems, but this isn't
+  ;; exactly portable.
+  (open-input-file "/dev/urandom"))
+
 (define (make-websocket uri-or-string)
   "Create and establish a new WebSocket connection for the remote
 resource described by URI-OR-STRING."
@@ -149,7 +157,10 @@ resource described by URI-OR-STRING."
                ((? uri? uri) uri)
                ((? string? str) (string->uri str)))))
     (if (websocket-uri? uri)
-        (let ((ws (%make-websocket uri (make-client-socket uri) 'connecting)))
+        (let ((ws (%make-websocket uri
+                                   (make-client-socket uri)
+                                   (open-entropy-port)
+                                   'connecting)))
           (handshake ws)
           ws)
         (error "not a websocket uri" uri))))
@@ -168,6 +179,7 @@ resource described by URI-OR-STRING."
            (read-frame socket) ; throw it away
            (loop)))))
     (close-port socket)
+    (close-port (websocket-entropy-port ws))
     (set-websocket-state! ws 'closed)))
 
 (define (websocket-send ws data)
