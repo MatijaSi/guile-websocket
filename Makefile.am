@@ -43,6 +43,7 @@ godir=$(libdir)/guile/2.0/ccache
 SOURCES =					\
   web/socket/base64.scm				\
   web/socket/sha-1.scm				\
+  web/socket/utils.scm				\
   web/socket/frame.scm				\
   web/socket/server.scm
 

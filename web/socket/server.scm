@@ -30,23 +30,12 @@
   #:use-module (web request)
   #:use-module (web response)
   #:use-module (web uri)
-  #:use-module (web socket base64)
   #:use-module (web socket frame)
-  #:use-module (web socket sha-1)
+  #:use-module (web socket utils)
   #:export (make-server-socket
             run-server))
 
 ;; See section 4.2 for explanation of the handshake.
-(define (handshake client-key)
-  "Translate the base64 encoded CLIENT-KEY string into a base64
-encoded acceptance key."
-  (base64-encode
-   (sha-1->bytevector
-    (sha-1
-     (string->utf8
-      (string-append (string-trim-both client-key)
-                     "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))))))
-
 (define (read-handshake-request client-socket)
   "Read HTTP request from CLIENT-SOCKET that should contain the
 headers required for a WebSocket handshake."
@@ -58,7 +47,7 @@ headers required for a WebSocket handshake."
 connection for the client whose key is CLIENT-KEY, a base64 encoded
 string."
   ;; See section 4.2.2.
-  (let ((accept-key (handshake client-key)))
+  (let ((accept-key (make-accept-key (string-trim-both client-key))))
     (build-response #:code 101
                     #:headers `((upgrade . ("websocket"))
                                 (connection . (upgrade))
