@@ -188,12 +188,16 @@ resource described by URI-OR-STRING."
     (close-port (websocket-entropy-port ws))
     (set-websocket-state! ws 'closed)))
 
+(define (generate-masking-key ws)
+  "Create a new masking key using the entropy source of WS."
+  ;; Masking keys are 32 bits long.
+  (get-bytevector-n (websocket-entropy-port ws) 4))
+
 (define (websocket-send ws data)
   "Send DATA, a string or bytevector, to the server that WS is
 connected to."
-  ;; TODO: Generate maskng key.
   ;; TODO: Send frames over some threshold in fragments.
-  (write-frame (make-text-frame data)
+  (write-frame (make-text-frame data (generate-masking-key ws))
                (websocket-socket ws)))
 
 (define (websocket-receive ws)
