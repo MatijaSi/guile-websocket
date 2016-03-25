@@ -28,6 +28,7 @@
   #:use-module (rnrs bytevectors)
   #:use-module (rnrs io ports)
   #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-9 gnu)
   #:use-module (web request)
   #:use-module (web response)
   #:use-module (web uri)
@@ -85,6 +86,13 @@ scheme."
   (uri websocket-uri)
   (socket websocket-socket)
   (state websocket-state set-websocket-state!))
+
+(define (display-websocket ws port)
+  (format port "#<websocket ~a ~a>"
+          (uri->string (websocket-uri ws))
+          (websocket-state ws)))
+
+(set-record-type-printer! <websocket> display-websocket)
 
 (define (websocket-connecting? ws)
   "Return #t if the WebSocket WS is in the connecting state."
