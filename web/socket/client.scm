@@ -37,6 +37,11 @@
   #:export (make-websocket
             websocket?
             websocket-uri
+            websocket-state
+            websocket-connecting?
+            websocket-open?
+            websocket-closing?
+            websocket-closed?
             close-websocket
             websocket-send
             websocket-receive))
@@ -74,12 +79,28 @@ scheme."
     (connect s (addrinfo:addr info))
     s))
 
-;; TODO: Add 'state' field (connecting, open, closing, closed)
 (define-record-type <websocket>
-  (%make-websocket uri socket)
+  (%make-websocket uri socket state)
   websocket?
   (uri websocket-uri)
-  (socket websocket-socket))
+  (socket websocket-socket)
+  (state websocket-state set-websocket-state!))
+
+(define (websocket-connecting? ws)
+  "Return #t if the WebSocket WS is in the connecting state."
+  (eq? (websocket-state ws) 'connecting))
+
+(define (websocket-open? ws)
+  "Return #t if the WebSocket WS is in the open state."
+  (eq? (websocket-state ws) 'open))
+
+(define (websocket-closing? ws)
+  "Return #t if the WebSocket WS is in the closing state."
+  (eq? (websocket-state ws) 'closing))
+
+(define (websocket-closed? ws)
+  "Return #t if the WebSocket WS is in the closed state."
+  (eq? (websocket-state ws) 'closed))
 
 ;; See Section 4.1 - Client Requirements
 (define (make-handshake-request uri)
@@ -103,13 +124,15 @@ remote resource described by URI."
          (connection (assoc-ref headers 'connection))
          (accept (assoc-ref headers 'sec-websocket-accept)))
     ;; Validate the handshake.
-    (unless (and (= (response-code response) 101)
-                 (string-ci=? (car upgrade) "websocket")
-                 (equal? connection '(upgrade))
-                 ;; TODO: authenticate accept key.
-                 )
-      (close-websocket ws)
-      (error "websocket handshake failed" (websocket-uri ws)))))
+    (if (and (= (response-code response) 101)
+             (string-ci=? (car upgrade) "websocket")
+             (equal? connection '(upgrade))
+             ;; TODO: authenticate accept key.
+             )
+        (set-websocket-state! ws 'open)
+        (begin
+          (close-websocket ws)
+          (error "websocket handshake failed" (websocket-uri ws))))))
 
 (define (make-websocket uri-or-string)
   "Create and establish a new WebSocket connection for the remote
@@ -118,7 +141,7 @@ resource described by URI-OR-STRING."
                ((? uri? uri) uri)
                ((? string? str) (string->uri str)))))
     (if (websocket-uri? uri)
-        (let ((ws (%make-websocket uri (make-client-socket uri))))
+        (let ((ws (%make-websocket uri (make-client-socket uri) 'connecting)))
           (handshake ws)
           ws)
         (error "not a websocket uri" uri))))
@@ -126,6 +149,7 @@ resource described by URI-OR-STRING."
 (define (close-websocket ws)
   "Close the WebSocket connection for the client WS."
   (let ((socket (websocket-socket ws)))
+    (set-websocket-state! ws 'closing)
     (write-frame (make-close-frame (make-bytevector 0)) socket)
     ;; Per section 5.5.1 , wait for the server to close the connection
     ;; for a reasonable amount of time.
@@ -135,7 +159,8 @@ resource described by URI-OR-STRING."
          (unless (port-eof? socket)
            (read-frame socket) ; throw it away
            (loop)))))
-    (close-port socket)))
+    (close-port socket)
+    (set-websocket-state! ws 'closed)))
 
 (define (websocket-send ws data)
   "Send DATA, a string or bytevector, to the server that WS is
