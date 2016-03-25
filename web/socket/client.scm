@@ -34,7 +34,7 @@
   #:use-module (web uri)
   #:use-module (web socket base64)
   #:use-module (web socket frame)
-  #:use-module (web socket sha-1)
+  #:use-module (web socket utils)
   #:export (make-websocket
             websocket?
             websocket-uri
@@ -111,43 +111,43 @@ scheme."
   "Return #t if the WebSocket WS is in the closed state."
   (eq? (websocket-state ws) 'closed))
 
-(define (generate-websocket-nonce ws)
+(define (generate-client-key ws)
   "Return a random, base64 encoded nonce using the entropy source of
 WS."
   (base64-encode
    (get-bytevector-n (websocket-entropy-port ws) 16)))
 
 ;; See Section 4.1 - Client Requirements
-(define (make-handshake-request ws)
-  "Create an HTTP request for initiating a WebSocket connect with the
-remote resource described by URI."
-  (let* ((uri (websocket-uri ws))
-         (headers `((host . (,(uri-host uri) . #f))
+(define (make-handshake-request uri key)
+  "Create an HTTP request for initiating a WebSocket connection with
+the remote resource described by URI, using a randomly generated nonce
+KEY."
+  (let ((headers `((host . (,(uri-host uri) . #f))
                    (upgrade . ("WebSocket"))
                    (connection . (upgrade))
-                   (sec-websocket-key . ,(generate-websocket-nonce ws))
+                   (sec-websocket-key . ,key)
                    (sec-websocket-version . "13"))))
     (build-request uri #:method 'GET #:headers headers)))
 
 (define (handshake ws)
   "Perform the WebSocket handshake for the client WS."
-  (write-request (make-handshake-request ws)
-                 (websocket-socket ws))
-  (let* ((response (read-response (websocket-socket ws)))
-         (headers (response-headers response))
-         (upgrade (assoc-ref headers 'upgrade))
-         (connection (assoc-ref headers 'connection))
-         (accept (assoc-ref headers 'sec-websocket-accept)))
-    ;; Validate the handshake.
-    (if (and (= (response-code response) 101)
-             (string-ci=? (car upgrade) "websocket")
-             (equal? connection '(upgrade))
-             ;; TODO: authenticate accept key.
-             )
-        (set-websocket-state! ws 'open)
-        (begin
-          (close-websocket ws)
-          (error "websocket handshake failed" (websocket-uri ws))))))
+  (let ((key (generate-client-key ws)))
+    (write-request (make-handshake-request (websocket-uri ws) key)
+                   (websocket-socket ws))
+    (let* ((response (read-response (websocket-socket ws)))
+           (headers (response-headers response))
+           (upgrade (assoc-ref headers 'upgrade))
+           (connection (assoc-ref headers 'connection))
+           (accept (assoc-ref headers 'sec-websocket-accept)))
+      ;; Validate the handshake.
+      (if (and (= (response-code response) 101)
+               (string-ci=? (car upgrade) "websocket")
+               (equal? connection '(upgrade))
+               (string=? (string-trim-both accept) (make-accept-key key)))
+          (set-websocket-state! ws 'open)
+          (begin
+            (close-websocket ws)
+            (error "websocket handshake failed" (websocket-uri ws)))))))
 
 (define (open-entropy-port)
   "Return an open input port to a reliable source of entropy for the
