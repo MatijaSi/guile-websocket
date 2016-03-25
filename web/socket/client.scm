@@ -26,6 +26,7 @@
 (define-module (web socket client)
   #:use-module (ice-9 match)
   #:use-module (rnrs bytevectors)
+  #:use-module (rnrs io ports)
   #:use-module (srfi srfi-9)
   #:use-module (web request)
   #:use-module (web response)
@@ -124,7 +125,17 @@ resource described by URI-OR-STRING."
 
 (define (close-websocket ws)
   "Close the WebSocket connection for the client WS."
-  (close-port (websocket-socket ws)))
+  (let ((socket (websocket-socket ws)))
+    (write-frame (make-close-frame (make-bytevector 0)) socket)
+    ;; Per section 5.5.1 , wait for the server to close the connection
+    ;; for a reasonable amount of time.
+    (let loop ()
+      (match (select #() (vector socket) #() 1) ; 1 second timeout
+        ((#() #(socket) #()) ; there is output to read
+         (unless (port-eof? socket)
+           (read-frame socket) ; throw it away
+           (loop)))))
+    (close-port socket)))
 
 (define (websocket-send ws data)
   "Send DATA, a string or bytevector, to the server that WS is
