@@ -111,21 +111,27 @@ scheme."
   "Return #t if the WebSocket WS is in the closed state."
   (eq? (websocket-state ws) 'closed))
 
+(define (generate-websocket-nonce ws)
+  "Return a random, base64 encoded nonce using the entropy source of
+WS."
+  (base64-encode
+   (get-bytevector-n (websocket-entropy-port ws) 16)))
+
 ;; See Section 4.1 - Client Requirements
-(define (make-handshake-request uri)
+(define (make-handshake-request ws)
   "Create an HTTP request for initiating a WebSocket connect with the
 remote resource described by URI."
-  (let ((headers `((host . (,(uri-host uri) . #f))
+  (let* ((uri (websocket-uri ws))
+         (headers `((host . (,(uri-host uri) . #f))
                    (upgrade . ("WebSocket"))
                    (connection . (upgrade))
-                   ;; TODO: Generate a real key.
-                   (sec-websocket-key . "AQIDBAUGBwgJCgsMDQ4PEC==")
+                   (sec-websocket-key . ,(generate-websocket-nonce ws))
                    (sec-websocket-version . "13"))))
     (build-request uri #:method 'GET #:headers headers)))
 
 (define (handshake ws)
   "Perform the WebSocket handshake for the client WS."
-  (write-request (make-handshake-request (websocket-uri ws))
+  (write-request (make-handshake-request ws)
                  (websocket-socket ws))
   (let* ((response (read-response (websocket-socket ws)))
          (headers (response-headers response))
