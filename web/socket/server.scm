@@ -26,6 +26,7 @@
 (define-module (web socket server)
   #:use-module (ice-9 match)
   #:use-module (rnrs bytevectors)
+  #:use-module (rnrs io ports)
   #:use-module (web request)
   #:use-module (web response)
   #:use-module (web uri)
@@ -95,6 +96,10 @@ called for each complete message that is received."
       (when response
         (write-frame response client-socket))))
 
+  (define (read-frame-maybe)
+    (and (not (port-eof? client-socket))
+         (read-frame client-socket)))
+
   ;; Perform the HTTP handshake and upgrade to WebSocket protocol.
   (let* ((request (read-handshake-request client-socket))
          (client-key (assoc-ref (request-headers request) 'sec-websocket-key))
@@ -102,14 +107,19 @@ called for each complete message that is received."
     (write-response response client-socket)
     (let loop ((fragments '())
                (type #f))
-      (let ((frame (read-frame client-socket)))
+      (let ((frame (read-frame-maybe)))
         (cond
+         ;; EOF - port is closed.
+         ((not frame)
+          (close-port client-socket))
          ;; Per section 5.4, control frames may appear interspersed
          ;; along with a fragmented message.
          ((close-frame? frame)
           ;; Per section 5.5.1, echo the close frame back to the
-          ;; client before closing the socket.
-          (write-frame (make-close-frame (frame-data frame)) client-socket)
+          ;; client before closing the socket.  The client may no
+          ;; longer be listening.
+          (false-if-exception
+           (write-frame (make-close-frame (frame-data frame)) client-socket))
           (close-port client-socket))
          ((ping-frame? frame)
           ;; Per section 5.5.3, a pong frame must include the exact
@@ -140,6 +150,7 @@ client in response to their message, and #f indicates that nothing
 should be sent back."
   ;; TODO: Handle multiple simultaneous clients.
   (listen server-socket 1)
+  (sigaction SIGPIPE SIG_IGN)
   (let loop ()
     (serve-client (accept-new-client server-socket) handler)
     (loop)))
