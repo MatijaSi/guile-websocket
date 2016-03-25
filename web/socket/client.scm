@@ -186,7 +186,8 @@ resource described by URI-OR-STRING."
            (loop)))))
     (close-port socket)
     (close-port (websocket-entropy-port ws))
-    (set-websocket-state! ws 'closed)))
+    (set-websocket-state! ws 'closed)
+    *unspecified*))
 
 (define (generate-masking-key ws)
   "Create a new masking key using the entropy source of WS."
