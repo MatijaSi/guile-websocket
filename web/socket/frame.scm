@@ -305,7 +305,7 @@ MASKING-KEY."
     ;; 125 bytes.
     (when (and (> length 125)
                (control-frame? type))
-      (websocket-error "control frame to large: " type length))
+      (websocket-error "control frame too large: " type length))
 
     (let ((bv (get-bytevector-n port length)))
       (when masking-key
