@@ -1,10 +1,12 @@
+(use-modules (fibers))
 (use-modules (web socket server))
 
 ;; Respond to text messages by reversing the message.  Respond to
 ;; binary messages with "hello".
-(define (handler data)
+(define (handler store data)
+  (pk 'store store)
   (if (string? data)
       (string-reverse data)
       "hello"))
 
-(run-server handler (make-server-socket #:port 9090))
+(run-fibers (run-server* handler))

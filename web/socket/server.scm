@@ -27,13 +27,14 @@
   #:use-module (ice-9 match)
   #:use-module (rnrs bytevectors)
   #:use-module (rnrs io ports)
+  #:use-module (fibers)  
   #:use-module (web request)
   #:use-module (web response)
   #:use-module (web uri)
   #:use-module (web socket frame)
   #:use-module (web socket utils)
   #:export (make-server-socket
-            run-server))
+            run-server*))
 
 ;; See section 4.2 for explanation of the handshake.
 (define (read-handshake-request client-socket)
@@ -59,6 +60,8 @@ string."
                              (port 8080))
   (let ((sock (socket PF_INET SOCK_STREAM 0)))
     (setsockopt sock SOL_SOCKET SO_REUSEADDR 1)
+    (fcntl sock F_SETFD FD_CLOEXEC)
+    (fcntl sock F_SETFL (logior O_NONBLOCK (fcntl sock F_GETFL)))
     (bind sock AF_INET addr port)
     sock))
 
@@ -66,14 +69,14 @@ string."
   (match (accept server-socket)
     ((client-socket . _) client-socket)))
 
-(define (serve-client client-socket handler)
+(define (serve-client client-socket handler store)
   "Serve client connected via CLIENT-SOCKET by performing the HTTP
 handshake and listening for control and data frames.  HANDLER is
 called for each complete message that is received."
   (define (handle-data-frame type data)
-    (let* ((result   (handler (match type
-                                ('text   (utf8->string data))
-                                ('binary data))))
+    (let* ((result   (pk 'result (handler store (match type
+                                          ('text   (utf8->string data))
+                                          ('binary data)))))
            (response (cond
                       ((string? result)
                        (make-text-frame result))
@@ -128,18 +131,36 @@ called for each complete message that is received."
           (handle-data-frame (frame-type frame) (frame-data frame))
           (loop '() #f)))))))
 
-(define* (run-server handler #:optional (server-socket (make-server-socket)))
-  "Run WebSocket server on SERVER-SOCKET.  HANDLER, a procedure that
-accepts a single argument, is called for each complete message that
-the server receives from a client.  When the message is in text
-format, HANDLER is passed a string.  When the message is in binary
-format, HANDLER is passed a bytevector.  HANDLER must return either a
-string, bytevector, or #f.  Strings and bytevectors are sent to the
-client in response to their message, and #f indicates that nothing
-should be sent back."
-  ;; TODO: Handle multiple simultaneous clients.
-  (listen server-socket 1)
-  (sigaction SIGPIPE SIG_IGN)
+(define (client-loop port addr handler store)
+  (setvbuf port 'block 1024)
+  ;; Disable Nagle's algorithm.  We buffer ourselves.
+  (setsockopt port IPPROTO_TCP TCP_NODELAY 1)
+  (serve-client port handler store))
+  
+(define* (socket-loop handler server-socket store)
   (let loop ()
-    (serve-client (accept-new-client server-socket) handler)
-    (loop)))
+    (pk 'fuu)
+    (match (pk 'client (accept server-socket SOCK_NONBLOCK))
+      ((client . addr)
+       (spawn-fiber (lambda () (pk (client-loop client addr handler store))))
+       (loop)))))
+
+(define (make-default-socket family addr port)
+  (let ((sock (socket PF_INET SOCK_STREAM 0)))
+    (setsockopt sock SOL_SOCKET SO_REUSEADDR 1)
+    (fcntl sock F_SETFD FD_CLOEXEC)
+    (fcntl sock F_SETFL (logior O_NONBLOCK (fcntl sock F_GETFL)))
+    (bind sock family addr port)
+    sock))
+
+(define (run-server* handler)
+  (lambda* (#:key (host #f)
+                  (family AF_INET)
+                  (addr (if host
+                            (inet-pton family host)
+                            INADDR_LOOPBACK))
+                  (port 9090)
+                  (socket (make-default-socket family addr port)))
+    (listen socket 1024)
+    (sigaction SIGPIPE SIG_IGN)
+    (socket-loop handler socket (make-hash-table))))
